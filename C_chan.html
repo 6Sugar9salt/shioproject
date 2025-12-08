@@ -117,36 +117,79 @@
         // DEFINITION OF AI PERSONAS (DEV CODES)
         // =========================================================
         
-        // --- DEV CODE: DIRECTOR (映像監督) ---
-        const PROMPT_DIRECTOR_V1 = `
+        // --- DEV CODE: DIRECTOR (映像監督) v3.0 Time-Sync Edition ---
+        const PROMPT_DIRECTOR_V3 = `
 # Role
 You are a top-tier Music Video Director and Visual Storyteller for Google Veo 3.1.
-Your task is to listen to the audio track, analyze the lyrics and the Director's Note, and create a "Scene Storyboard" (JSON format).
+Your task is to listen to the audio track, analyze the lyrics and the Director's Note, and create a highly detailed "Scene Storyboard" (JSON format) with **frame-perfect timing**.
 
 # Process & Philosophy
-1. **Listen & Feel**: Analyze the audio's tempo, energy, and mood changes.
-2. **Interpret**: Translate lyrics and mood into visual metaphors.
-   - **CRITICAL RULE**: Do NOT quote Japanese lyrics directly in the output. When referring to lyrics, describe their meaning in English only (e.g. "The lyrics talk about looking back...").
-3. **Pacing**: Divide the video into cuts that match the music's structure.
-   - **Crucial Rule**: Avoid cuts longer than 8 seconds. If a musical segment is long, split it into multiple camera angles.
-   - **Editing Handles**: Always calculate 'generation_duration' to be 1-2 seconds longer than 'musical_duration'.
+
+1. **Audio & Time Analysis (Precision Timing)**:
+   - **BPM & Energy**: Estimate the BPM (Beats Per Minute) and Energy Level (1-10).
+   - **Beat Grid Calculation**: Calculate scene duration based on Musical Bars/Beats.
+     - *Formula:* \`Duration (sec) = (60 / BPM) * Total Beats\`
+   - **Frame Calculation**: Calculate total frames for editing (Target: 24fps).
+     - *Formula:* \`Frames = Duration * 24\` (Round to nearest integer).
+
+2. **Visual Interpretation (Physics over Emotion)**:
+   - **Translate Emotion to Physics**: Do NOT describe abstract emotions (e.g., "Sadness"). Instead, describe **Lighting**, **Weather**, and **Camera Movement**.
+   - **Visual Anchors**: Extract concrete nouns (e.g., "Neon Sign") from lyrics.
+   - **CRITICAL**: Do NOT quote Japanese lyrics. Translate meanings into English physical descriptions.
+
+3. **Cinematography & Rendering (Style Control)**:
+   - **Forbidden Styles**: Do NOT use "Anime style", "Cartoon", or "2D illustration".
+   - **Required Look**: Use "Unreal Engine 5 style", "Octane Render", "Volumetric lighting".
+   - **Motion Style (FPS)**:
+     - For Cinematic/Emotional scenes: Use "**Cinematic 24fps motion**" (Natural blur).
+     - For Action/High-Energy scenes: Use "**Fluid 60fps high-frame-rate**" (Sharp movement).
+
+4. **Pacing & Editing**:
+   - **Max Duration**: Strictly keep scenes under **8.0 seconds**.
+   - **Handles**: Calculate \`generation_duration\` = \`musical_duration\` + 2.0s.
+
+5. **Completeness & Coverage (CRITICAL)**:
+   - **YOU MUST MAP THE ENTIRE AUDIO.** The sum of \`musical_duration\` of all scenes must roughly match the total length of the audio file provided.
+   - Do NOT stop after the first chorus. You must storyboard until the very end of the track.
+   - If the song is long, generate as many scenes as necessary (e.g., 30+ scenes).
 
 # Output JSON Structure
 Output ONLY a JSON object with a "scenes" array.
-Each scene object must contain:
-- \`scene_id\`: Sequential ID (001, 002...)
-- \`segment\`: Musical part (Intro, Verse 1, Chorus...)
-- \`musical_duration\`: Actual length in music (seconds)
-- \`generation_duration\`: Recommended generation length (approx +2.0s buffer, max 8.0s)
-- \`director_note\`: Your reasoning for this cut in English (e.g., "The song refers to a switch, so I start with...")
-- \`veo_prompt_elements\`:
-    - \`action\`: What happens? (e.g., Character looks back)
-    - \`camera\`: Camera movement (e.g., Dolly zoom, Static, Low angle)
-    - \`lighting\`: Lighting setup (e.g., Neon strobe, Golden hour, Dark moody)
-    - \`environment\`: Short description of place (e.g., Rainy cyberpunk street)
+
+## Scene Object Schema
+{
+  "scene_id": "String (001, 002...)",
+  "segment": "String (Intro, Verse 1...)",
+  
+  // Timing & Metrics (The New Logic)
+  "bpm": Number (Estimated),
+  "bars": Number (e.g., 2, 4),
+  "beats": Number (Total beats in this scene),
+  "musical_duration": Number (Calculated from BPM),
+  "duration_frames": Number (at 24fps),
+  "generation_duration": Number (musical_duration + 2.0),
+  "energy_level": Number (1-10),
+
+  // Content Analysis
+  "lyric_context": "String (English physical description of mood)",
+  "visual_anchors": "String (Concrete nouns)",
+  "audio_trigger": "String (Sync element: 'Kick drum', 'Synth swell')",
+
+  // Visual Directives
+  "director_note": "String",
+  "transition_advice": "String (e.g., 'Hard cut on the snare hit')",
+  
+  "veo_prompt_elements": {
+    "action": "String (Movement)",
+    "environment": "String (Location)",
+    "lighting": "String (Physical setup)",
+    "camera": "String (Specific move: 'Truck Left', 'Dolly In')",
+    "render_quality": "String (Include FPS style: 'Unreal Engine 5, Octane Render, Cinematic 24fps motion...')"
+  }
+}
 `;
 
-        // --- DEV CODE: TRANSLATOR (翻訳家) ---
+        // --- DEV CODE: TRANSLATOR (翻訳家) v1.0 ---
         const PROMPT_TRANSLATOR_V1 = `
 # Role
 You are a professional Translator for Video Production.
@@ -164,7 +207,7 @@ You are a professional Translator for Video Production.
 `;
 
         // --- ACTIVE CONFIGURATION ---
-        const ACTIVE_PROMPT_DIRECTOR = PROMPT_DIRECTOR_V1;
+        const ACTIVE_PROMPT_DIRECTOR = PROMPT_DIRECTOR_V3;
         const ACTIVE_PROMPT_TRANSLATOR = PROMPT_TRANSLATOR_V1;
 
 
@@ -206,20 +249,25 @@ You are a professional Translator for Video Production.
             const [isApiReady, setIsApiReady] = useState(false);
             
             // Individual Model Selection
-            const [directorModel, setDirectorModel] = useState("gemini-2.5-flash-preview-09-2025");
-            const [translatorModel, setTranslatorModel] = useState("gemini-2.5-flash-preview-09-2025");
+            const [directorModel, setDirectorModel] = useState("gemini-2.0-flash-exp"); 
+            const [translatorModel, setTranslatorModel] = useState("gemini-2.0-flash-exp");
             
             // Inputs
             const [audioFile, setAudioFile] = useState(null);
             const [audioBase64, setAudioBase64] = useState(null);
+            const [audioDuration, setAudioDuration] = useState(0); // Track Audio Duration
             const [lyrics, setLyrics] = useState("");
             const [directorNote, setDirectorNote] = useState("");
             const [isDragging, setIsDragging] = useState(false);
 
+            // BPM Correction
+            const [manualBpm, setManualBpm] = useState("");
+
             // Outputs
-            const [masterJson, setMasterJson] = useState(null);
-            const [displayScenes, setDisplayScenes] = useState([]);
+            const [masterJson, setMasterJson] = useState(null); 
+            const [displayScenes, setDisplayScenes] = useState([]); 
             const [isTranslated, setIsTranslated] = useState(false);
+            const [totalGeneratedTime, setTotalGeneratedTime] = useState(0);
             
             // UI States
             const [isLoading, setIsLoading] = useState(false);
@@ -236,13 +284,13 @@ You are a professional Translator for Video Production.
                     if (data.models) {
                         const models = data.models.filter(m => 
                             m.supportedGenerationMethods?.includes("generateContent") &&
-                            (m.name.includes("gemini") || m.name.includes("2.5") || m.name.includes("3.0")) &&
+                            (m.name.includes("gemini") || m.name.includes("2.0") || m.name.includes("1.5")) &&
                             !m.name.includes("tts")
                         ).sort((a,b) => b.name.localeCompare(a.name));
                         setAvailableModels(models);
                         
                         // Default selections
-                        const flashModel = models.find(m => m.name.includes("flash"));
+                        const flashModel = models.find(m => m.name.includes("2.0-flash")) || models[0];
                         const defaultId = flashModel ? flashModel.name.replace('models/', '') : (models.length > 0 ? models[0].name.replace('models/', '') : "");
                         
                         setDirectorModel(defaultId);
@@ -260,6 +308,14 @@ You are a professional Translator for Video Production.
                 if (!file.type.startsWith('audio/')) { alert("音声ファイルを選択してください"); return; }
                 if (file.size > 20 * 1024 * 1024) { alert("ファイルサイズが大きすぎます (Max 20MB)"); return; }
                 setAudioFile(file);
+                
+                // Get Duration
+                const audioEl = document.createElement('audio');
+                audioEl.src = URL.createObjectURL(file);
+                audioEl.onloadedmetadata = () => {
+                    setAudioDuration(audioEl.duration);
+                };
+
                 const reader = new FileReader();
                 reader.onload = (e) => setAudioBase64(e.target.result.split(',')[1]);
                 reader.readAsDataURL(file);
@@ -268,7 +324,12 @@ You are a professional Translator for Video Production.
             const handleDrop = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); if (e.dataTransfer.files.length) processAudioFile(e.dataTransfer.files[0]); };
             const handleDragOver = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); };
             const handleDragLeave = (e) => { e.preventDefault(); e.stopPropagation(); if (e.relatedTarget && e.currentTarget.contains(e.relatedTarget)) return; setIsDragging(false); };
-            const resetAudio = (e) => { e.stopPropagation(); setAudioFile(null); setAudioBase64(null); };
+            const resetAudio = (e) => { 
+                e.stopPropagation(); 
+                setAudioFile(null); 
+                setAudioBase64(null); 
+                setAudioDuration(0);
+            };
 
             // --- Handlers: Generate ---
             const generateStoryboard = async () => {
@@ -282,27 +343,63 @@ You are a professional Translator for Video Production.
                 setMasterJson(null);
                 setDisplayScenes([]);
                 setIsTranslated(false);
+                setTotalGeneratedTime(0);
 
                 try {
                     const genAI = new window.GoogleGenerativeAI(apiKey);
                     const model = genAI.getGenerativeModel({ 
                         model: directorModel,
                         systemInstruction: ACTIVE_PROMPT_DIRECTOR,
-                        generationConfig: { responseMimeType: "application/json" }
+                        generationConfig: { responseMimeType: "application/json" },
+                        safetySettings: [
+                            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
+                            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_ONLY_HIGH" },
+                            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_ONLY_HIGH" },
+                            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_ONLY_HIGH" }
+                        ]
                     });
 
-                    let userPrompt = "Analyze this audio track.";
+                    let userPrompt = `Analyze this audio track (Total Duration: ${Math.floor(audioDuration)} seconds).`;
                     if (lyrics) userPrompt += `\n\nLyrics:\n${lyrics}`;
                     if (directorNote) userPrompt += `\n\nDirector's Note:\n${directorNote}`;
-                    userPrompt += "\n\nCreate a detailed scene-by-scene storyboard JSON.";
+                    
+                    if (manualBpm) {
+                        userPrompt += `\n\n[USER OVERRIDE]: Assume the BPM is ${manualBpm}. Calculate timing based on this BPM.`;
+                    }
+                    
+                    userPrompt += "\n\nCreate a detailed scene-by-scene storyboard JSON covering the FULL duration.";
 
                     const audioPart = { inlineData: { data: audioBase64, mimeType: audioFile.type } };
                     const result = await model.generateContent([userPrompt, audioPart]);
                     const parsed = extractAndParseJSON(result.response.text());
                     
                     if (parsed && parsed.scenes) {
-                        setMasterJson(parsed);
-                        setDisplayScenes(parsed.scenes);
+                        // --- Validation & Calculation ---
+                        let totalTime = 0;
+
+                        const validatedScenes = parsed.scenes.map(s => {
+                            if (s.generation_duration > 8.0) s.generation_duration = 8.0;
+                            
+                            // Validate musical_duration vs BPM
+                            if (s.musical_duration) {
+                                totalTime += s.musical_duration;
+                                const frames = Math.round(s.musical_duration * 24);
+                                if (!s.duration_frames || Math.abs(s.duration_frames - frames) > 5) {
+                                    s.duration_frames = frames;
+                                }
+                            }
+                            return s;
+                        });
+                        
+                        setMasterJson({ ...parsed, scenes: validatedScenes });
+                        setDisplayScenes(validatedScenes);
+                        setTotalGeneratedTime(totalTime);
+
+                        // Completeness Check
+                        if (audioDuration > 0 && totalTime < audioDuration * 0.8) {
+                             setErrorMsg(`⚠️ 生成範囲不足警告: オーディオ長 ${Math.floor(audioDuration)}秒に対し、生成されたのは ${Math.floor(totalTime)}秒分です。AIが生成を中断した可能性があります。`);
+                        }
+                        
                     } else {
                         throw new Error("JSON Parse Failed or Invalid Structure");
                     }
@@ -351,7 +448,6 @@ You are a professional Translator for Video Production.
             };
 
             // --- Handlers: Export / Copy ---
-            // Helper: Copy using legacy execCommand for robust iframe support
             const execCopy = (text) => {
                 const textarea = document.createElement('textarea');
                 textarea.value = text;
@@ -396,35 +492,24 @@ You are a professional Translator for Video Production.
                 URL.revokeObjectURL(url);
             };
 
-            // 1. JSON Copy (Full Data)
             const copySingleSceneJSON = (scene) => {
                 const { description_ja, ...cleanScene } = scene;
                 const text = JSON.stringify(cleanScene, null, 2);
-                if (execCopy(text)) {
-                    alert(`シーン #${scene.scene_id} のJSONデータをコピーしました`);
-                } else {
-                    alert("コピーに失敗しました");
-                }
+                if (execCopy(text)) alert(`シーン #${scene.scene_id} のJSONデータをコピーしました`);
+                else alert("コピーに失敗しました");
             };
 
-            // 2. Note Copy (Formatted Text Only)
             const copySingleSceneNote = (scene) => {
                 const text = `シーン：${scene.scene_id}\n${scene.segment || ''}\n\n${scene.director_note || scene.veo_prompt_elements?.action || ''}`;
-                if (execCopy(text)) {
-                    alert(`シーン #${scene.scene_id} の演出指示をコピーしました`);
-                } else {
-                    alert("コピーに失敗しました");
-                }
+                if (execCopy(text)) alert(`シーン #${scene.scene_id} の演出指示をコピーしました`);
+                else alert("コピーに失敗しました");
             };
 
             const copyMasterJson = () => {
                 if (!masterJson) return;
                 const text = JSON.stringify(masterJson, null, 2);
-                if (execCopy(text)) {
-                    alert("マスターJSONをコピーしました");
-                } else {
-                    alert("コピーに失敗しました");
-                }
+                if (execCopy(text)) alert("マスターJSONをコピーしました");
+                else alert("コピーに失敗しました");
             };
 
             // --- RENDER ---
@@ -467,6 +552,8 @@ You are a professional Translator for Video Production.
 
                         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-auto lg:h-[calc(100vh-250px)]">
                             <div className="lg:col-span-5 flex flex-col gap-4 h-full overflow-y-auto pr-2 pb-10">
+                                
+                                {/* 1. Audio Upload */}
                                 <div 
                                     className={`glass-panel rounded-xl p-6 transition-colors duration-300 relative ${isDragging ? 'border-cyan-500 bg-cyan-900/20' : 'border-gray-700'}`}
                                     onDragOver={handleDragOver}
@@ -474,7 +561,21 @@ You are a professional Translator for Video Production.
                                     onDrop={handleDrop}
                                     onClick={() => !audioFile && document.getElementById('hidden-audio-input').click()}
                                 >
-                                    <h2 className="text-xs font-bold text-gray-400 uppercase mb-3 flex items-center gap-2"><i className="fas fa-music text-pink-400"></i> 1. 音源ファイル (Audio)</h2>
+                                    <div className="flex justify-between items-center mb-3">
+                                        <h2 className="text-sm font-bold text-gray-200 uppercase flex items-center gap-2"><i className="fas fa-music text-pink-400"></i> 1. 音源ファイル (Audio)</h2>
+                                        {/* BPM Input */}
+                                        <div className="flex items-center gap-2">
+                                            <label className="text-[10px] text-gray-500">BPM (任意):</label>
+                                            <input 
+                                                type="number" 
+                                                className="w-16 bg-gray-900 border border-gray-700 rounded px-2 py-1 text-xs text-cyan-400 focus:border-cyan-500 outline-none font-mono" 
+                                                placeholder="Auto"
+                                                value={manualBpm}
+                                                onChange={(e) => setManualBpm(e.target.value)}
+                                            />
+                                        </div>
+                                    </div>
+
                                     <input type="file" id="hidden-audio-input" accept="audio/*" className="hidden" onChange={(e) => e.target.files.length && processAudioFile(e.target.files[0])} />
                                     {!audioFile ? (
                                         <div className="border-2 border-dashed border-gray-700 rounded-lg p-8 text-center cursor-pointer hover:border-cyan-500 transition">
@@ -487,14 +588,20 @@ You are a professional Translator for Video Production.
                                         </div>
                                     )}
                                 </div>
+
+                                {/* 2. Lyrics */}
                                 <div className="glass-panel rounded-xl p-4">
-                                    <h2 className="text-xs font-bold text-gray-400 uppercase mb-2 flex items-center gap-2"><i className="fas fa-align-left text-green-400"></i> 2. 歌詞 (Lyrics) <span className="text-[10px] text-gray-600 font-normal">Optional</span></h2>
+                                    <h2 className="text-sm font-bold text-gray-200 uppercase mb-2 flex items-center gap-2"><i className="fas fa-align-left text-green-400"></i> 2. 歌詞 (Lyrics) <span className="text-[10px] text-gray-600 font-normal">Optional</span></h2>
                                     <textarea className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-xs text-gray-300 focus:border-green-500 outline-none resize-none h-32" placeholder="歌詞があればここに貼り付けてください..." value={lyrics} onChange={(e) => setLyrics(e.target.value)}></textarea>
                                 </div>
+
+                                {/* 3. Director's Note */}
                                 <div className="glass-panel rounded-xl p-4 border-l-2 border-l-cyan-500">
-                                    <h2 className="text-xs font-bold text-cyan-400 uppercase mb-2 flex items-center gap-2"><i className="fas fa-clapperboard"></i> 3. 演出指示 (Director's Note)</h2>
+                                    <h2 className="text-sm font-bold text-cyan-400 uppercase mb-2 flex items-center gap-2"><i className="fas fa-clapperboard"></i> 3. 演出指示 (Director's Note)</h2>
                                     <textarea className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-xs text-gray-300 focus:border-cyan-500 outline-none resize-none h-24" placeholder="例：サイバーパンクな世界観で。サビで爆発的なエフェクトを..." value={directorNote} onChange={(e) => setDirectorNote(e.target.value)}></textarea>
                                 </div>
+
+                                {/* Action Buttons */}
                                 <div className="grid grid-cols-2 gap-3 mt-2">
                                     <div className="col-span-1 flex flex-col gap-2">
                                         <button onClick={generateStoryboard} disabled={!audioFile || isLoading} className={`w-full py-4 rounded-xl font-bold shadow-lg transition-all border border-white/10 flex flex-col items-center justify-center gap-1 group ${isLoading ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 'bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white'}`}>
@@ -520,7 +627,11 @@ You are a professional Translator for Video Production.
                                 <div className="glass-panel rounded-xl p-1 flex-1 flex flex-col min-h-0 relative border border-gray-700">
                                     <div className="bg-gray-800/50 px-4 py-3 border-b border-gray-700 flex justify-between items-center shrink-0">
                                         <h2 className="text-sm font-bold text-white flex items-center gap-2"><i className="fas fa-list-ol text-cyan-400"></i> シーンリスト (Scene List)</h2>
-                                        {masterJson && <span className="text-[10px] bg-cyan-900/30 text-cyan-400 px-2 py-1 rounded border border-cyan-500/30">{masterJson.scenes.length} Cuts</span>}
+                                        <div className="flex items-center gap-2">
+                                            {audioDuration > 0 && <span className="text-[10px] bg-gray-800 text-gray-400 px-2 py-1 rounded border border-gray-600">Audio: {Math.floor(audioDuration)}s</span>}
+                                            {totalGeneratedTime > 0 && <span className={`text-[10px] px-2 py-1 rounded border ${totalGeneratedTime < audioDuration * 0.8 ? 'bg-red-900/30 text-red-400 border-red-500/30' : 'bg-cyan-900/30 text-cyan-400 border-cyan-500/30'}`}>Json: {Math.floor(totalGeneratedTime)}s</span>}
+                                            {masterJson && <span className="text-[10px] bg-cyan-900/30 text-cyan-400 px-2 py-1 rounded border border-cyan-500/30">{masterJson.scenes.length} Cuts</span>}
+                                        </div>
                                     </div>
                                     <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-950/50 relative">
                                         {!masterJson && !isLoading && <div className="h-full flex flex-col items-center justify-center text-gray-600 select-none"><i className="fas fa-film text-4xl mb-4 opacity-20"></i><p className="text-sm font-mono opacity-50">Waiting for generation...</p></div>}
@@ -531,7 +642,8 @@ You are a professional Translator for Video Production.
                                                     <div className="flex items-center gap-2 mb-2">
                                                         <span className="text-cyan-400 font-bold text-xs font-mono">#{scene.scene_id}</span>
                                                         <span className="bg-gray-800 text-gray-400 text-[10px] px-1.5 py-0.5 rounded border border-gray-700">{scene.segment}</span>
-                                                        <span className="text-gray-500 text-[10px] font-mono"><i className="far fa-clock"></i> {scene.generation_duration}s</span>
+                                                        <span className="text-gray-500 text-[10px] font-mono ml-2"><i className="far fa-clock"></i> {scene.duration_frames}f ({scene.musical_duration}s)</span>
+                                                        <span className="text-gray-600 text-[10px] font-mono">BPM:{scene.bpm}</span>
                                                     </div>
                                                     <p className={`text-sm mb-1 leading-relaxed ${scene.description_ja ? 'text-gray-200 font-bold' : 'text-gray-300'}`}>{scene.description_ja || scene.director_note || scene.veo_prompt_elements?.action}</p>
                                                     {scene.description_ja && <p className="text-[10px] text-gray-500 font-mono line-clamp-1 border-t border-gray-800 pt-1 mt-1">{scene.director_note}</p>}
