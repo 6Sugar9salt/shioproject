@@ -52,8 +52,8 @@
                             'to': { opacity: '1', transform: 'translateY(0)' },
                         },
                         pulseGlow: {
-                            '0%, 100%': { boxShadow: '0 0 5px rgba(245, 158, 11, 0.2)' },
-                            '50%': { boxShadow: '0 0 20px rgba(245, 158, 11, 0.6)' },
+                            '0%, 100%': { boxShadow: '0 0 5px rgba(6, 182, 212, 0.2)' },
+                            '50%': { boxShadow: '0 0 20px rgba(6, 182, 212, 0.6)' },
                         }
                     }
                 }
@@ -357,8 +357,18 @@ Return a single JSON object.
                     // Build Request
                     const requestParts = [];
 
+                    // --- [MODIFIED] Sanitization Logic for Source C ---
+                    // Clone selectedScene to avoid mutating original state
+                    const sceneForPrompt = { ...selectedScene };
+                    
+                    // Remove 'audio_trigger' field if it exists
+                    if ('audio_trigger' in sceneForPrompt) {
+                        delete sceneForPrompt.audio_trigger;
+                    }
+                    // --------------------------------------------------
+
                     // 1. Text Prompt
-                    let promptText = `**Source C (Target Scene Data):**\n${JSON.stringify(selectedScene, null, 2)}\n\n`;
+                    let promptText = `**Source C (Target Scene Data):**\n${JSON.stringify(sceneForPrompt, null, 2)}\n\n`;
                     
                     if (sourceAText.trim()) {
                         promptText += `**Source A (Text Context / JSON):**\n${sourceAText}\n\n`;
