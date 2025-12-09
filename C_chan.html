@@ -114,44 +114,32 @@
         
         // =========================================================
         // [ROLE: PROMPT ENGINEER & SYSTEM ARCHITECT]
-        // DEFINITION OF AI PERSONAS (DEV CODES)
+        // REFACTORED FOR KEYFRAME-DRIVEN WORKFLOW (2025)
         // =========================================================
         
-        // --- DEV CODE: DIRECTOR (映像監督) v3.0 Time-Sync Edition ---
-        const PROMPT_DIRECTOR_V3 = `
+        // --- DEV CODE: DIRECTOR (映像監督) v4.0 Keyframe Edition ---
+        const PROMPT_DIRECTOR_V4 = `
 # Role
-You are a top-tier Music Video Director and Visual Storyteller for Google Veo 3.1.
-Your task is to listen to the audio track, analyze the lyrics and the Director's Note, and create a highly detailed "Scene Storyboard" (JSON format) with **frame-perfect timing**.
+You are a top-tier Music Video Director for the "Keyframe-Driven" workflow.
+Your task is to analyze the audio and lyrics to create a "Scene Storyboard" (JSON).
 
-# Process & Philosophy
+# WORKFLOW CHANGE (CRITICAL)
+We are NO LONGER using simple Text-to-Video.
+We use **Image-to-Video**.
+1. First, an Image Generator (NanoBananaPro) will create a "Start Frame" based on your instructions.
+2. Then, a Video Generator (Veo 3.1) will animate that frame.
 
-1. **Audio & Time Analysis (Precision Timing)**:
-   - **BPM & Energy**: Estimate the BPM (Beats Per Minute) and Energy Level (1-10).
-   - **Beat Grid Calculation**: Calculate scene duration based on Musical Bars/Beats.
-     - *Formula:* \`Duration (sec) = (60 / BPM) * Total Beats\`
-   - **Frame Calculation**: Calculate total frames for editing (Target: 24fps).
-     - *Formula:* \`Frames = Duration * 24\` (Round to nearest integer).
+# Task
+You must split your visual instructions into two distinct categories for every scene:
+1. **Static Composition (For Image Gen)**: What does the *still image* look like? (Angle, lighting, pose, detail).
+2. **Motion & Camera (For Video Gen)**: How does it *move*? (Camera panning, wind, action).
 
-2. **Visual Interpretation (Physics over Emotion)**:
-   - **Translate Emotion to Physics**: Do NOT describe abstract emotions (e.g., "Sadness"). Instead, describe **Lighting**, **Weather**, and **Camera Movement**.
-   - **Visual Anchors**: Extract concrete nouns (e.g., "Neon Sign") from lyrics.
-   - **CRITICAL**: Do NOT quote Japanese lyrics. Translate meanings into English physical descriptions.
-
-3. **Cinematography & Rendering (Style Control)**:
-   - **Forbidden Styles**: Do NOT use "Anime style", "Cartoon", or "2D illustration".
-   - **Required Look**: Use "Unreal Engine 5 style", "Octane Render", "Volumetric lighting".
-   - **Motion Style (FPS)**:
-     - For Cinematic/Emotional scenes: Use "**Cinematic 24fps motion**" (Natural blur).
-     - For Action/High-Energy scenes: Use "**Fluid 60fps high-frame-rate**" (Sharp movement).
-
-4. **Pacing & Editing**:
-   - **Max Duration**: Strictly keep scenes under **8.0 seconds**.
-   - **Handles**: Calculate \`generation_duration\` = \`musical_duration\` + 2.0s.
-
-5. **Completeness & Coverage (CRITICAL)**:
-   - **YOU MUST MAP THE ENTIRE AUDIO.** The sum of \`musical_duration\` of all scenes must roughly match the total length of the audio file provided.
-   - Do NOT stop after the first chorus. You must storyboard until the very end of the track.
-   - If the song is long, generate as many scenes as necessary (e.g., 30+ scenes).
+# Process
+1. **Audio Analysis**: Calculate accurate duration (BPM based).
+2. **Visual Direction**:
+   - Do NOT describe abstract emotions. Use physical descriptions.
+   - **Static**: "Low angle, silhouette, neon backlight, hyper-detailed texture."
+   - **Motion**: "Slow dolly in, hair blowing in wind, particles rising."
 
 # Output JSON Structure
 Output ONLY a JSON object with a "scenes" array.
@@ -161,30 +149,25 @@ Output ONLY a JSON object with a "scenes" array.
   "scene_id": "String (001, 002...)",
   "segment": "String (Intro, Verse 1...)",
   
-  // Timing & Metrics (The New Logic)
-  "bpm": Number (Estimated),
-  "bars": Number (e.g., 2, 4),
-  "beats": Number (Total beats in this scene),
-  "musical_duration": Number (Calculated from BPM),
+  // Timing
+  "bpm": Number,
+  "musical_duration": Number (Seconds),
   "duration_frames": Number (at 24fps),
-  "generation_duration": Number (musical_duration + 2.0),
-  "energy_level": Number (1-10),
-
-  // Content Analysis
-  "lyric_context": "String (English physical description of mood)",
-  "visual_anchors": "String (Concrete nouns)",
-  "audio_trigger": "String (Sync element: 'Kick drum', 'Synth swell')",
-
-  // Visual Directives
-  "director_note": "String",
-  "transition_advice": "String (e.g., 'Hard cut on the snare hit')",
   
+  // Context
+  "lyric_context": "String (English physical description)",
+  "director_note": "String (Japanese is OK for this field)",
+
+  // SPLIT PROMPTS
   "veo_prompt_elements": {
-    "action": "String (Movement)",
-    "environment": "String (Location)",
-    "lighting": "String (Physical setup)",
-    "camera": "String (Specific move: 'Truck Left', 'Dolly In')",
-    "render_quality": "String (Include FPS style: 'Unreal Engine 5, Octane Render, Cinematic 24fps motion...')"
+    // 1. FOR IMAGE GENERATOR (NanoBananaPro)
+    "static_composition": "String (DETAILED visual description of the single frame. Camera angle, Lighting, Color palette, Pose. NO movement keywords.)",
+    
+    // 2. FOR VIDEO GENERATOR (Veo 3.1)
+    "motion_camera": "String (Movement ONLY. 'Camera pans left', 'Character turns head', 'Rain falls'. Do NOT describe the character's appearance here.)",
+    
+    "environment": "String",
+    "lighting": "String"
   }
 }
 `;
@@ -197,7 +180,7 @@ You are a professional Translator for Video Production.
 # Task
 1. Read the input JSON (English Storyboard).
 2. For each scene, generate a concise JAPANESE description ("description_ja") based on the English content.
-3. **CRITICAL**: To save output space, return ONLY a JSON object mapping "scene_id" to "description_ja". Do NOT repeat the English content.
+3. Return ONLY a JSON object mapping "scene_id" to "description_ja".
 
 # Output Format Example
 {
@@ -207,7 +190,7 @@ You are a professional Translator for Video Production.
 `;
 
         // --- ACTIVE CONFIGURATION ---
-        const ACTIVE_PROMPT_DIRECTOR = PROMPT_DIRECTOR_V3;
+        const ACTIVE_PROMPT_DIRECTOR = PROMPT_DIRECTOR_V4;
         const ACTIVE_PROMPT_TRANSLATOR = PROMPT_TRANSLATOR_V1;
 
 
@@ -255,7 +238,7 @@ You are a professional Translator for Video Production.
             // Inputs
             const [audioFile, setAudioFile] = useState(null);
             const [audioBase64, setAudioBase64] = useState(null);
-            const [audioDuration, setAudioDuration] = useState(0); // Track Audio Duration
+            const [audioDuration, setAudioDuration] = useState(0); 
             const [lyrics, setLyrics] = useState("");
             const [directorNote, setDirectorNote] = useState("");
             const [isDragging, setIsDragging] = useState(false);
@@ -289,12 +272,12 @@ You are a professional Translator for Video Production.
                         ).sort((a,b) => b.name.localeCompare(a.name));
                         setAvailableModels(models);
                         
-                        // Default selections
-                        const flashModel = models.find(m => m.name.includes("2.0-flash")) || models[0];
-                        const defaultId = flashModel ? flashModel.name.replace('models/', '') : (models.length > 0 ? models[0].name.replace('models/', '') : "");
+                        // Default selections - Prefer Pro if available for Director
+                        const proModel = models.find(m => m.name.includes("pro")) || models[0];
+                        const flashModel = models.find(m => m.name.includes("flash")) || models[0];
                         
-                        setDirectorModel(defaultId);
-                        setTranslatorModel(defaultId);
+                        setDirectorModel(proModel ? proModel.name.replace('models/', '') : (models.length > 0 ? models[0].name.replace('models/', '') : ""));
+                        setTranslatorModel(flashModel ? flashModel.name.replace('models/', '') : (models.length > 0 ? models[0].name.replace('models/', '') : ""));
                         setIsApiReady(true);
                     }
                 } catch (e) {
@@ -309,7 +292,6 @@ You are a professional Translator for Video Production.
                 if (file.size > 20 * 1024 * 1024) { alert("ファイルサイズが大きすぎます (Max 20MB)"); return; }
                 setAudioFile(file);
                 
-                // Get Duration
                 const audioEl = document.createElement('audio');
                 audioEl.src = URL.createObjectURL(file);
                 audioEl.onloadedmetadata = () => {
@@ -360,7 +342,12 @@ You are a professional Translator for Video Production.
                     });
 
                     let userPrompt = `Analyze this audio track (Total Duration: ${Math.floor(audioDuration)} seconds).`;
-                    if (lyrics) userPrompt += `\n\nLyrics:\n${lyrics}`;
+                    if (lyrics) {
+                        userPrompt += `\n\nLyrics (Text Provided):\n${lyrics}`;
+                    } else {
+                        userPrompt += `\n\nLyrics: NOT PROVIDED. Please listen to the audio carefully and transcribe/infer the lyrics and mood.`;
+                    }
+                    
                     if (directorNote) userPrompt += `\n\nDirector's Note:\n${directorNote}`;
                     
                     if (manualBpm) {
@@ -374,13 +361,9 @@ You are a professional Translator for Video Production.
                     const parsed = extractAndParseJSON(result.response.text());
                     
                     if (parsed && parsed.scenes) {
-                        // --- Validation & Calculation ---
                         let totalTime = 0;
-
                         const validatedScenes = parsed.scenes.map(s => {
-                            if (s.generation_duration > 8.0) s.generation_duration = 8.0;
-                            
-                            // Validate musical_duration vs BPM
+                            // Validate musical_duration
                             if (s.musical_duration) {
                                 totalTime += s.musical_duration;
                                 const frames = Math.round(s.musical_duration * 24);
@@ -395,9 +378,8 @@ You are a professional Translator for Video Production.
                         setDisplayScenes(validatedScenes);
                         setTotalGeneratedTime(totalTime);
 
-                        // Completeness Check
                         if (audioDuration > 0 && totalTime < audioDuration * 0.8) {
-                             setErrorMsg(`⚠️ 生成範囲不足警告: オーディオ長 ${Math.floor(audioDuration)}秒に対し、生成されたのは ${Math.floor(totalTime)}秒分です。AIが生成を中断した可能性があります。`);
+                             setErrorMsg(`⚠️ 生成範囲不足警告: オーディオ長 ${Math.floor(audioDuration)}秒に対し、生成されたのは ${Math.floor(totalTime)}秒分です。`);
                         }
                         
                     } else {
@@ -521,12 +503,12 @@ You are a professional Translator for Video Production.
                                 <div className="w-1.5 h-8 bg-gradient-to-b from-cyan-400 to-blue-500"></div>
                                 <div>
                                     <h1 className="text-2xl font-movie font-bold tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-500">Cちゃん</h1>
-                                    <p className="text-[10px] text-gray-500 font-movie tracking-widest uppercase">MV Storyboarder</p>
+                                    <p className="text-[10px] text-gray-500 font-movie tracking-widest uppercase">MV Director (v4 Keyframe)</p>
                                 </div>
                             </div>
                             <div className="text-right hidden md:block">
-                                <div className="text-xs text-gray-500 font-mono">TARGET: Google Veo 3.1</div>
-                                <div className="text-xs text-cyan-500/50 font-mono">MODE: Director's Cut</div>
+                                <div className="text-xs text-gray-500 font-mono">TARGET: I2V Workflow</div>
+                                <div className="text-xs text-cyan-500/50 font-mono">MODE: Scene Architect</div>
                             </div>
                         </div>
                     </header>
@@ -548,7 +530,6 @@ You are a professional Translator for Video Production.
                                 </div>
                             </div>
                         </div>
-                        <p className="text-[10px] text-gray-500 mt-2 mb-6 text-right">※ APIキーはブラウザ内でのみ使用され、外部サーバーへは送信・保存されません。</p>
 
                         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-auto lg:h-[calc(100vh-250px)]">
                             <div className="lg:col-span-5 flex flex-col gap-4 h-full overflow-y-auto pr-2 pb-10">
@@ -591,8 +572,8 @@ You are a professional Translator for Video Production.
 
                                 {/* 2. Lyrics */}
                                 <div className="glass-panel rounded-xl p-4">
-                                    <h2 className="text-sm font-bold text-gray-200 uppercase mb-2 flex items-center gap-2"><i className="fas fa-align-left text-green-400"></i> 2. 歌詞 (Lyrics) <span className="text-[10px] text-gray-600 font-normal">Optional</span></h2>
-                                    <textarea className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-xs text-gray-300 focus:border-green-500 outline-none resize-none h-32" placeholder="歌詞があればここに貼り付けてください..." value={lyrics} onChange={(e) => setLyrics(e.target.value)}></textarea>
+                                    <h2 className="text-sm font-bold text-gray-200 uppercase mb-2 flex items-center gap-2"><i className="fas fa-align-left text-green-400"></i> 2. 歌詞 (Lyrics) <span className="text-[10px] text-gray-600 font-normal">Optional (Rec: Pro Model)</span></h2>
+                                    <textarea className="w-full bg-gray-900 border border-gray-700 rounded-lg p-3 text-xs text-gray-300 focus:border-green-500 outline-none resize-none h-32" placeholder="推奨：精度向上のため、歌詞を貼り付けてください。空欄の場合、AIが聴き取ります。" value={lyrics} onChange={(e) => setLyrics(e.target.value)}></textarea>
                                 </div>
 
                                 {/* 3. Director's Note */}
@@ -645,8 +626,11 @@ You are a professional Translator for Video Production.
                                                         <span className="text-gray-500 text-[10px] font-mono ml-2"><i className="far fa-clock"></i> {scene.duration_frames}f ({scene.musical_duration}s)</span>
                                                         <span className="text-gray-600 text-[10px] font-mono">BPM:{scene.bpm}</span>
                                                     </div>
-                                                    <p className={`text-sm mb-1 leading-relaxed ${scene.description_ja ? 'text-gray-200 font-bold' : 'text-gray-300'}`}>{scene.description_ja || scene.director_note || scene.veo_prompt_elements?.action}</p>
-                                                    {scene.description_ja && <p className="text-[10px] text-gray-500 font-mono line-clamp-1 border-t border-gray-800 pt-1 mt-1">{scene.director_note}</p>}
+                                                    <p className={`text-sm mb-1 leading-relaxed ${scene.description_ja ? 'text-gray-200 font-bold' : 'text-gray-300'}`}>{scene.description_ja || scene.director_note || scene.veo_prompt_elements?.motion_camera || scene.veo_prompt_elements?.action}</p>
+                                                    <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-gray-800">
+                                                        <div><span className="text-[10px] text-gray-500 block">Static (Image)</span><p className="text-[10px] text-gray-400 font-mono line-clamp-1">{scene.veo_prompt_elements?.static_composition || "N/A"}</p></div>
+                                                        <div><span className="text-[10px] text-gray-500 block">Motion (Video)</span><p className="text-[10px] text-gray-400 font-mono line-clamp-1">{scene.veo_prompt_elements?.motion_camera || "N/A"}</p></div>
+                                                    </div>
                                                 </div>
                                                 <div className="flex flex-col gap-2">
                                                     <button onClick={() => downloadSingleScene(scene)} className="shrink-0 w-8 h-8 flex items-center justify-center text-gray-500 hover:text-cyan-400 hover:bg-gray-800 rounded transition" title="JSONダウンロード"><i className="fas fa-file-download"></i></button>
