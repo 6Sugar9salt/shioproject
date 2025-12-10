@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SHIO PROJECT: Production Board</title>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700;800&family=Zen+Maru+Gothic:wght@400;500;700&display=swap" rel="stylesheet">
+
+    <style>
+        body {
+            background-color: #f0f4f8;
+            color: #475569;
+            font-family: 'Zen Maru Gothic', sans-serif;
+            margin: 0;
+            overflow: hidden;
+            user-select: none; /* テキスト選択を防ぎアプリ感を出す */
+        }
+        
+        .font-rounded { font-family: 'M PLUS Rounded 1c', sans-serif; }
+
+        /* カードデザイン (固定表示用) */
+        .node-card {
+            position: absolute;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: start;
+            text-align: center;
+            padding: 16px 12px;
+            width: 180px;
+            height: auto;
+            min-height: 130px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        /* ホバー時の微細なエフェクトのみ残す */
+        .node-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            z-index: 20;
+        }
+
+        /* ケーブル（線）のアニメーション */
+        .cable-path {
+            fill: none;
+            stroke-linecap: round;
+            stroke-dasharray: 12;
+            animation: flow 40s linear infinite;
+        }
+        @keyframes flow {
+            to { stroke-dashoffset: -1000; }
+        }
+
+        /* 付箋スタイル (固定表示用) */
+        .sticky-note {
+            position: absolute;
+            background-color: #fef9c3;
+            border-bottom: 3px solid #eab308;
+            color: #854d0e;
+            padding: 12px;
+            width: 200px;
+            font-size: 0.75rem;
+            line-height: 1.5;
+            border-radius: 2px;
+            box-shadow: 4px 4px 12px rgba(0,0,0,0.1);
+            z-index: 40;
+            font-weight: bold;
+            transform-origin: center;
+        }
+        .sticky-note::after {
+            content: '';
+            position: absolute;
+            top: -8px; left: 50%; transform: translateX(-50%);
+            width: 40px; height: 12px;
+            background: rgba(234, 179, 8, 0.3);
+            border-radius: 2px;
+        }
+
+        /* 背景グリッド */
+        .bg-grid {
+            background-image: radial-gradient(#cbd5e1 2px, transparent 2px);
+            background-size: 24px 24px;
+        }
+        
+        /* スクロールバー装飾 */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState } = React;
+
+        const CANVAS_WIDTH = 1400;
+        const CANVAS_HEIGHT = 1800; 
+
+        // --- 確定したノード配置 (FINAL) ---
+        const INITIAL_NODES = [
+            { id: 'audio', type: 'input', label: '楽曲データ', sub: 'MP3 / WAV', desc: 'リズムや雰囲気を解析する元データ', icon: 'fa-music', color: 'blue', x: 32, y: 71, w: 140 },
+            { id: 'lyrics', type: 'input', label: '歌詞データ', sub: 'Lyrics', desc: '言葉の意味を映像に反映させます', icon: 'fa-file-lines', color: 'indigo', x: 226, y: 67, w: 140 },
+            { id: 'memo', type: 'input', label: '演出メモ', sub: 'Director Note', desc: '監督のこだわりや意図を伝えます', icon: 'fa-pen-to-square', color: 'slate', x: 413, y: 66, w: 140 },
+            
+            { id: 'c_chan', type: 'agent', label: 'Cちゃん', sub: '演出AI', desc: '曲を聴いて、BPMに合ったカット割りを考えます！', icon: 'fa-robot', color: 'cyan', x: 182, y: 366, w: 200 },
+            { id: 'json', type: 'data', label: 'シーン設計図', sub: 'JSON出力', desc: 'BPM、尺、演出指示をまとめたデータを出力！', icon: 'fa-file-code', color: 'slate', x: 193, y: 646, w: 180 },
+
+            { id: 'ne_chan', type: 'agent', label: 'がっちゃん', sub: '統合AI', desc: '設計図とキャラ設定を合体！AIへの指示書を作ります', icon: 'fa-magic', color: 'violet', x: 625, y: 234, w: 200 },
+            
+            { id: 'char', type: 'input', label: '3面図 (Ref)', sub: 'Reference', desc: 'キャラの外見や衣装の基準になります', icon: 'fa-image', color: 'pink', x: 919, y: 92, w: 160 },
+
+            { id: 'p_img', type: 'data', label: '絵作り指示', sub: 'Visual Prompt', desc: '静止画生成用に、構図や光を言語化します', icon: 'fa-paintbrush', color: 'pink', x: 637, y: 572, w: 160 },
+            { id: 'p_mov', type: 'data', label: '動きの指示', sub: 'Motion Prompt', desc: '動画生成用に、カメラワーク等を指定します', icon: 'fa-film', color: 'purple', x: 1072, y: 571, w: 160 },
+
+            { id: 'nano', type: 'tool', label: 'NanoBananaPro', sub: '画像生成 (T2I)', desc: '3面図を参照して、動画の元になる最高の一枚を生成！', icon: 'fa-palette', color: 'pink', x: 348, y: 833, w: 200 },
+            { id: 'keyframe', type: 'data', label: 'キーフレーム', sub: 'Start Image', desc: '動画の開始地点となる、高画質な基準画像が完成', icon: 'fa-images', color: 'slate', x: 503, y: 1070, w: 180 },
+            
+            { id: 'veo', type: 'tool', label: 'Veo 3.1', sub: '動画生成 (I2V)', desc: 'キーフレームを元に、指示通りの動きをつけます！', icon: 'fa-video', color: 'purple', x: 1009, y: 1026, w: 200 },
+            { id: 'clips', type: 'data', label: '動画クリップ', sub: 'Raw Footage', desc: '数秒間の動画素材が完成！これを素材にします', icon: 'fa-film', color: 'slate', x: 840, y: 1282, w: 180 },
+
+            { id: 'gate', type: 'human', label: 'QUALITY GATE', sub: '人の目と手作業', desc: '素材を厳選し、編集ソフトで繋いで仕上げます', icon: 'fa-star', color: 'amber', x: 348, y: 1304, w: 220 },
+            { id: 'final', type: 'final', label: '完成動画', sub: 'Final Movie', desc: '全ての工程を経て、MVが完成！', icon: 'fa-check-circle', color: 'orange', x: 749, y: 1525, w: 160 },
+        ];
+
+        // --- 確定した付箋配置 (FINAL) ---
+        const INITIAL_ISSUES = [
+            { id: 'i1', text: "⚡ 悩み: テキストだけで詳細なニュアンスを伝えるのは、まだ限界がある...", x: 878, y: 906, rotate: 2 },
+            { id: 'i2', text: "⚡ 悩み: 尺が足りない！中間フレーム（中割り）を作らないとカクつく...", x: 1050, y: 1249, rotate: -3 },
+            { id: 'i3', text: "⚡ 悩み: ここだけは手作業... 編集センスが問われる最後の砦。", x: 611, y: 1420, rotate: 3 },
+            { id: 'i4', text: "⚡ 悩み: 一貫性は出るけど、やっぱり選別が必要（AIガチャ要素）", x: 257, y: 1037, rotate: -2 },
+        ];
+
+        // --- 接続線定義 (FINAL) ---
+        const CONNECTIONS = [
+            // Inputs -> C-chan
+            { from: 'audio', to: 'c_chan', color: '#06b6d4', src: 'bottom', tgt: 'top' },
+            { from: 'lyrics', to: 'c_chan', color: '#06b6d4', src: 'bottom', tgt: 'top' },
+            { from: 'memo', to: 'c_chan', color: '#06b6d4', src: 'bottom', tgt: 'top' },
+            
+            // C-chan -> JSON
+            { from: 'c_chan', to: 'json', color: '#64748b', src: 'bottom', tgt: 'top' },
+
+            // JSON -> Ne-chan (右から出て左へ)
+            { from: 'json', to: 'ne_chan', color: '#8b5cf6', src: 'right', tgt: 'left', curveScale: 0.5 }, 
+            
+            // Char -> Ne-chan (左から出て上へ)
+            { from: 'char', to: 'ne_chan', color: '#ec4899', src: 'left', tgt: 'top', curveScale: 0.5 },
+
+            // Ne-chan -> Prompts
+            { from: 'ne_chan', to: 'p_img', color: '#ec4899', src: 'bottom', tgt: 'top' },
+            { from: 'ne_chan', to: 'p_mov', color: '#8b5cf6', src: 'bottom', tgt: 'top' },
+
+            // Char -> Nano (下から出て右へ)
+            { from: 'char', to: 'nano', color: '#ec4899', src: 'bottom', tgt: 'right', curveScale: 0.6 },
+
+            // Nano Flow
+            { from: 'p_img', to: 'nano', color: '#ec4899', src: 'bottom', tgt: 'top' },
+            { from: 'nano', to: 'keyframe', color: '#ec4899', src: 'bottom', tgt: 'top' },
+
+            // Veo Flow
+            { from: 'keyframe', to: 'veo', color: '#ec4899', src: 'right', tgt: 'left' },
+            { from: 'p_mov', to: 'veo', color: '#8b5cf6', src: 'bottom', tgt: 'top' },
+            { from: 'veo', to: 'clips', color: '#f59e0b', src: 'bottom', tgt: 'top' },
+
+            // Final Flow
+            { from: 'clips', to: 'gate', color: '#f59e0b', src: 'left', tgt: 'right' },
+            { from: 'gate', to: 'final', color: '#f97316', src: 'bottom', tgt: 'left' },
+        ];
+
+        // --- Main Component ---
+        const Board = () => {
+            const [nodes] = useState(INITIAL_NODES);
+            const [issues] = useState(INITIAL_ISSUES);
+
+            // Anchor Calc Helper
+            const getAnchor = (node, type) => {
+                const w = node.w || 180;
+                const h = node.h || 130; 
+                switch(type) {
+                    case 'top': return { x: node.x + w/2, y: node.y, nx: 0, ny: -1 };
+                    case 'bottom': return { x: node.x + w/2, y: node.y + h, nx: 0, ny: 1 };
+                    case 'left': return { x: node.x, y: node.y + h/2, nx: -1, ny: 0 };
+                    case 'right': return { x: node.x + w, y: node.y + h/2, nx: 1, ny: 0 };
+                    default: return { x: node.x + w/2, y: node.y + h, nx: 0, ny: 1 };
+                }
+            };
+
+            const getNode = (id) => nodes.find(n => n.id === id);
+
+            return (
+                <div className="w-screen h-screen overflow-auto bg-grid relative flex justify-center items-start pt-10 pb-40">
+                    <div style={{ width: CANVAS_WIDTH, height: CANVAS_HEIGHT, position: 'relative', transform: 'scale(0.85)', transformOrigin: 'top center' }}>
+                        
+                        <div className="absolute top-0 left-10 z-0 opacity-40 pointer-events-none">
+                            <h1 className="text-5xl font-rounded font-extrabold text-slate-300 uppercase tracking-widest">
+                                SHIO PROJECT
+                            </h1>
+                            <p className="text-xl font-bold text-slate-200 mt-2">PRODUCTION PIPELINE</p>
+                        </div>
+
+                        <svg width={CANVAS_WIDTH} height={CANVAS_HEIGHT} className="absolute top-0 left-0 pointer-events-none z-0">
+                            <defs>
+                                <marker id="arrowhead" markerWidth="6" markerHeight="4" refX="6" refY="2" orient="auto">
+                                    <polygon points="0 0, 6 2, 0 4" fill="#94a3b8" />
+                                </marker>
+                            </defs>
+                            {CONNECTIONS.map((conn, i) => {
+                                const startNode = getNode(conn.from);
+                                const endNode = getNode(conn.to);
+                                if (!startNode || !endNode) return null;
+
+                                const start = getAnchor(startNode, conn.src || 'bottom');
+                                const end = getAnchor(endNode, conn.tgt || 'top');
+                                const dist = Math.sqrt(Math.pow(end.x - start.x, 2) + Math.pow(end.y - start.y, 2));
+                                const push = dist * (conn.curveScale || 0.5); 
+                                const cp1x = start.x + start.nx * push;
+                                const cp1y = start.y + start.ny * push;
+                                const cp2x = end.x + end.nx * push;
+                                const cp2y = end.y + end.ny * push;
+
+                                return (
+                                    <g key={i}>
+                                        <path d={`M ${start.x} ${start.y} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${end.x} ${end.y}`} stroke="white" strokeWidth="10" fill="none" />
+                                        <path d={`M ${start.x} ${start.y} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${end.x} ${end.y}`} stroke={conn.color || '#cbd5e1'} strokeWidth="4" fill="none" strokeDasharray={conn.dashed ? "8,6" : "0"} className={!conn.dashed ? "cable-path" : ""} markerEnd="url(#arrowhead)" />
+                                    </g>
+                                );
+                            })}
+                        </svg>
+
+                        {nodes.map(node => <NodeCard key={node.id} data={node} />)}
+                        {issues.map(issue => <StickyNote key={issue.id} data={issue} />)}
+                    </div>
+                </div>
+            );
+        };
+
+        const NodeCard = ({ data }) => {
+            const colors = {
+                blue: "bg-blue-50 text-blue-600 border-blue-200",
+                indigo: "bg-indigo-50 text-indigo-600 border-indigo-200",
+                slate: "bg-slate-50 text-slate-600 border-slate-200",
+                cyan: "bg-cyan-50 text-cyan-700 border-cyan-200 shadow-cyan-100",
+                violet: "bg-violet-50 text-violet-700 border-violet-200 shadow-violet-100",
+                pink: "bg-pink-50 text-pink-700 border-pink-200",
+                purple: "bg-purple-50 text-purple-700 border-purple-200",
+                amber: "bg-amber-50 text-amber-700 border-amber-200 shadow-amber-100",
+                orange: "bg-orange-100 text-orange-700 border-orange-300 shadow-orange-200",
+            };
+            const style = { left: data.x, top: data.y, width: data.w, borderWidth: '2px', borderStyle: 'solid' };
+            return (
+                <div className={`node-card ${colors[data.color]}`} style={style}>
+                    <div className={`text-2xl mb-1 ${data.type === 'agent' ? 'p-2 bg-white rounded-full shadow-sm text-3xl' : ''}`}><i className={`fas ${data.icon}`}></i></div>
+                    <div className="font-bold text-sm leading-tight mb-1 pointer-events-none">{data.label}</div>
+                    <div className="flex flex-col gap-1 items-center w-full pointer-events-none">
+                        {data.sub && <div className="text-[10px] opacity-60 font-bold uppercase tracking-wide">{data.sub}</div>}
+                        {data.desc && <div className="text-[10px] leading-tight mt-2 pt-2 border-t border-current border-opacity-20 opacity-80 font-medium w-full">{data.desc}</div>}
+                    </div>
+                </div>
+            );
+        };
+
+        const StickyNote = ({ data }) => {
+            const style = { left: data.x, top: data.y, transform: `rotate(${data.rotate}deg)` };
+            return (
+                <div className="sticky-note" style={style}>
+                    <i className="fas fa-thumbtack text-red-400 text-xs mb-1 block opacity-50 pointer-events-none"></i>
+                    <span className="pointer-events-none">{data.text}</span>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<Board />);
+    </script>
+</body>
+</html>
