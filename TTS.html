@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini 2.5 TTS Studio</title>
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        .slider-thumb::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: #3b82f6;
+            cursor: pointer;
+            border-radius: 50%;
+        }
+        .slider-thumb::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            background: #3b82f6;
+            cursor: pointer;
+            border-radius: 50%;
+        }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #a8a8a8; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // --- Constants ---
+        const VOICES = [
+            "Puck", "Charon", "Kore", "Fenrir", "Aoede", "Zephyr", "Leda", 
+            "Algenib", "Enceladus", "Orus", "Callirrhoe", "Autonoe", "Umbriel", 
+            "Algieba", "Despina", "Erinome", "Rasalgethi", "Laomedeia", "Achernar", 
+            "Alnilam", "Schedar", "Gacrux", "Pulcherrima", "Achird", "Zubenelgenubi", 
+            "Vindemiatrix", "Sadachbia", "Sadaltager", "Sulafat"
+        ].sort();
+
+        const LANGUAGES = [
+            { code: "ja-JP", label: "日本語 (Japanese)" },
+            { code: "en-US", label: "英語 (English)" },
+            { code: "zh-CN", label: "中国語 (Chinese)" }
+        ];
+
+        const FORMATS = ["WAV"]; 
+
+        // Target Default Model
+        const PREFERRED_MODEL = "models/gemini-2.5-pro-preview-tts";
+
+        // --- Utils: PCM to WAV Converter ---
+        const pcmToWav = (base64PCM, sampleRate = 24000) => {
+            const binaryString = atob(base64PCM);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+
+            const buffer = new ArrayBuffer(44 + bytes.length);
+            const view = new DataView(buffer);
+            const numChannels = 1; 
+            const bitsPerSample = 16; 
+
+            writeString(view, 0, 'RIFF');
+            view.setUint32(4, 36 + bytes.length, true);
+            writeString(view, 8, 'WAVE');
+            writeString(view, 12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true);
+            view.setUint16(22, numChannels, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, sampleRate * numChannels * (bitsPerSample / 8), true);
+            view.setUint16(32, numChannels * (bitsPerSample / 8), true);
+            view.setUint16(34, bitsPerSample, true);
+            writeString(view, 36, 'data');
+            view.setUint32(40, bytes.length, true);
+
+            const offset = 44;
+            for (let i = 0; i < bytes.length; i++) {
+                view.setUint8(offset + i, bytes[i]);
+            }
+
+            return new Blob([view], { type: 'audio/wav' });
+        };
+
+        const writeString = (view, offset, string) => {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        };
+
+        // --- Helper: Date Formatter for Filename ---
+        const getFormattedDate = () => {
+            const now = new Date();
+            const mm = String(now.getMonth() + 1).padStart(2, '0');
+            const dd = String(now.getDate()).padStart(2, '0');
+            return `${mm}${dd}`;
+        };
+
+        // --- Main Component ---
+        const App = () => {
+            // -- State: Connection --
+            const [apiKey, setApiKey] = useState("");
+            const [isConnected, setIsConnected] = useState(false);
+            // Initialize with default model so dropdown isn't empty on load
+            const [models, setModels] = useState([{ name: PREFERRED_MODEL, displayName: "Gemini 2.5 Pro Preview TTS (Default)" }]);
+            const [connectionError, setConnectionError] = useState(null);
+
+            // -- State: Settings --
+            const [selectedModel, setSelectedModel] = useState(PREFERRED_MODEL);
+            const [temperature, setTemperature] = useState(1.0); 
+            
+            const [seed, setSeed] = useState(Math.floor(Math.random() * 100000000));
+            const [isSeedLocked, setIsSeedLocked] = useState(true);
+            
+            const [language, setLanguage] = useState("ja-JP");
+            const [format, setFormat] = useState("WAV"); 
+
+            // -- State: Input --
+            const [mode, setMode] = useState("single"); 
+            const [stylePrompt, setStylePrompt] = useState("");
+            const [text, setText] = useState("");
+            const [voiceSingle, setVoiceSingle] = useState("Puck");
+            const [voiceMultiA, setVoiceMultiA] = useState("Puck");
+            const [voiceMultiB, setVoiceMultiB] = useState("Kore");
+
+            // -- State: Status & Result --
+            const [status, setStatus] = useState("idle"); 
+            const [audioUrl, setAudioUrl] = useState(null);
+            const [errorMessage, setErrorMessage] = useState("");
+            const [lastUsedParams, setLastUsedParams] = useState(null);
+
+            // --- Handlers ---
+
+            const handleConnect = async () => {
+                if (!apiKey) return;
+                setConnectionError(null);
+                try {
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+                    if (!response.ok) throw new Error("Connection failed");
+                    
+                    const data = await response.json();
+                    
+                    // Filter Logic: Only models containing "tts" (case-insensitive)
+                    const ttsModels = data.models ? data.models.filter(m => m.name.toLowerCase().includes("tts")) : [];
+                    
+                    let finalModels = [];
+                    if (ttsModels.length === 0) {
+                        // Fallback logic if list is empty
+                        finalModels = [{ name: PREFERRED_MODEL, displayName: "Gemini 2.5 Pro TTS (Fallback)" }];
+                    } else {
+                        finalModels = ttsModels;
+                    }
+                    setModels(finalModels);
+
+                    // --- Smart Model Selection Logic ---
+                    const isPreferredAvailable = finalModels.some(m => m.name === PREFERRED_MODEL);
+                    
+                    if (isPreferredAvailable) {
+                        setSelectedModel(PREFERRED_MODEL);
+                    } else if (finalModels.length > 0) {
+                        console.warn(`Preferred model ${PREFERRED_MODEL} not found. Auto-selecting: ${finalModels[0].name}`);
+                        setSelectedModel(finalModels[0].name);
+                    }
+                    
+                    // Connection Success!
+                    setIsConnected(true);
+                    // (Seed is already initialized and locked by default state, so no extra logic needed here)
+
+                } catch (e) {
+                    console.warn("Model fetch failed, using fallback.", e);
+                    setModels([{ name: PREFERRED_MODEL, displayName: "Gemini 2.5 Pro TTS (Default)" }]);
+                    setSelectedModel(PREFERRED_MODEL);
+                    setIsConnected(true); // Treat as connected for fallback mode
+                    setConnectionError("モデルリスト取得に失敗しましたが、デフォルト設定で接続しました。");
+                }
+            };
+
+            const generateNewSeed = () => {
+                return Math.floor(Math.random() * 100000000);
+            };
+
+            const handleModeChange = (newMode) => {
+                setMode(newMode);
+                if (newMode === 'multi' && text === "") {
+                    setText("Speaker A: こんにちは。\nSpeaker B: 元気ですか？\nSpeaker A: はい、とても元気です！");
+                } else if (newMode === 'single' && text.includes("Speaker A:")) {
+                    setText(""); 
+                }
+            };
+
+            const handleGenerate = async () => {
+                if (!text || !apiKey || !isConnected) return;
+
+                setStatus("generating");
+                if (audioUrl) URL.revokeObjectURL(audioUrl);
+                setAudioUrl(null);
+                setErrorMessage("");
+
+                // --- SEED LOGIC (FIXED) ---
+                // Always use the current visible seed value.
+                // Never generate a new one automatically here.
+                let currentSeed = seed;
+                
+                // If it wasn't locked, lock it now so the user sees it's being used/kept.
+                if (!isSeedLocked) {
+                    setIsSeedLocked(true); 
+                }
+
+                const currentParams = {
+                    model: selectedModel,
+                    mode: mode,
+                    voices: mode === 'single' ? voiceSingle : `A: ${voiceMultiA}, B: ${voiceMultiB}`,
+                    filenameVoice: mode === 'single' ? voiceSingle : 'Multi', // Save simple voice name for filename
+                    temperature: temperature,
+                    seed: currentSeed,
+                    language: language,
+                    format: "WAV" 
+                };
+                setLastUsedParams(currentParams);
+
+                try {
+                    const modelName = selectedModel.replace("models/", "");
+                    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+
+                    let finalPromptText = text;
+                    if (stylePrompt) {
+                        finalPromptText = `(Style: ${stylePrompt})\n\n${text}`;
+                    }
+
+                    const payload = {
+                        contents: [{
+                            parts: [{ text: finalPromptText }]
+                        }],
+                        generationConfig: {
+                            responseModalities: ["AUDIO"],
+                            temperature: temperature,
+                            seed: currentSeed,
+                        }
+                    };
+
+                    if (mode === 'single') {
+                        payload.generationConfig.speechConfig = {
+                            voiceConfig: {
+                                prebuiltVoiceConfig: {
+                                    voiceName: voiceSingle
+                                }
+                            }
+                        };
+                    } else {
+                        payload.generationConfig.speechConfig = {
+                            multiSpeakerVoiceConfig: {
+                                speakerVoiceConfigs: [
+                                    {
+                                        speaker: "Speaker A",
+                                        voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceMultiA } }
+                                    },
+                                    {
+                                        speaker: "Speaker B",
+                                        voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceMultiB } }
+                                    }
+                                ]
+                            }
+                        };
+                    }
+
+                    const response = await fetch(url, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(payload)
+                    });
+
+                    const data = await response.json();
+
+                    if (!response.ok) {
+                        throw new Error(data.error?.message || "Unknown API Error");
+                    }
+
+                    // --- Enhanced Error Handling ---
+                    if (!data.candidates || data.candidates.length === 0) {
+                        // Sometimes candidates are empty if safety filters block completely
+                        if (data.promptFeedback && data.promptFeedback.blockReason) {
+                             throw new Error(`プロンプトがブロックされました。理由: ${data.promptFeedback.blockReason}`);
+                        }
+                        throw new Error("APIから候補(candidates)が返ってきませんでした。");
+                    }
+
+                    const candidate = data.candidates[0];
+
+                    // Check for safety blocking
+                    if (candidate.finishReason === "SAFETY") {
+                        // Try to find which safety category triggered it
+                        const safetyMsg = candidate.safetyRatings 
+                            ? candidate.safetyRatings.find(r => r.probability !== "NEGLIGIBLE")?.category 
+                            : "Unknown";
+                        throw new Error(`セーフティフィルタにより生成がブロックされました (Reason: ${safetyMsg})。テキストやプロンプトを変更して再試行してください。`);
+                    }
+
+                    const part = candidate.content?.parts?.[0];
+                    
+                    // Check if we got text instead of audio (Model refusal)
+                    if (part?.text && !part?.inlineData) {
+                         throw new Error(`音声生成に失敗し、テキストが返されました: "${part.text}"`);
+                    }
+
+                    const inlineData = part?.inlineData;
+                    
+                    if (inlineData && inlineData.data) {
+                        const base64Data = inlineData.data;
+                        const mimeType = inlineData.mimeType || ""; 
+
+                        let sampleRate = 24000; 
+                        if (mimeType.includes("rate=")) {
+                            const match = mimeType.match(/rate=(\d+)/);
+                            if (match && match[1]) {
+                                sampleRate = parseInt(match[1], 10);
+                            }
+                        }
+
+                        const wavBlob = pcmToWav(base64Data, sampleRate);
+                        const newAudioUrl = URL.createObjectURL(wavBlob);
+                        
+                        setAudioUrl(newAudioUrl);
+                        setStatus("success");
+                    } else {
+                        // Fallback error
+                        console.log("Full Response for debugging:", data);
+                        throw new Error("音声データが見つかりませんでした (No audio data found in response).");
+                    }
+
+                } catch (e) {
+                    setStatus("error");
+                    setErrorMessage(e.message);
+                }
+            };
+
+            const handleSeedLockChange = (checked) => {
+                setIsSeedLocked(checked);
+            };
+
+            // Helper to determine if inputs should be disabled
+            const isInputDisabled = status === 'generating' || mode === 'multi';
+
+            // Generate filename based on user rule: Temp-Seed-Voice-Date
+            // Example: T0.7S85722412VLeda0201.wav
+            const getDownloadFileName = () => {
+                if (!lastUsedParams) return "gemini_tts_audio.wav";
+                const { temperature, seed, filenameVoice } = lastUsedParams;
+                const dateStr = getFormattedDate();
+                return `T${temperature}S${seed}V${filenameVoice}${dateStr}.wav`;
+            };
+
+            return (
+                <div className="min-h-screen p-4 md:p-8 max-w-5xl mx-auto">
+                    <header className="mb-8 flex items-center justify-between">
+                        <div>
+                            <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-2">
+                                <span className="bg-blue-600 text-white p-2 rounded-lg text-xl">TTS</span>
+                                Gemini 2.5 Audio Studio(すーちゃん)
+                            </h1>
+                            <p className="text-gray-500 mt-1">Text-to-Speech Generation App</p>
+                        </div>
+                        {/* Status Badge */}
+                        <div className={`text-sm px-4 py-1.5 rounded-full border font-bold flex items-center gap-2 transition-colors duration-300 ${isConnected 
+                            ? 'bg-green-100 text-green-700 border-green-200' 
+                            : 'bg-red-100 text-red-700 border-red-200'}`}>
+                            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                            {isConnected ? "接続中" : "未接続"}
+                        </div>
+                    </header>
+
+                    {/* Always show the main layout */}
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                        
+                        {/* --- Left Column: Configuration (Expanded to col-span-5) --- */}
+                        <div className="lg:col-span-5 space-y-4">
+                            
+                            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200">
+                                <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4">Configuration</h3>
+                                
+                                {/* API Key & Model Grid Layout (2 columns) */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                                    
+                                    {/* Left: API Connection (Visual priority 1) */}
+                                    <div className="order-1">
+                                        <label className="block text-xs font-bold text-blue-800 mb-1">APIキー</label>
+                                        <div className="flex gap-1">
+                                            <input 
+                                                type="password" 
+                                                className="flex-1 p-2 text-xs border border-blue-200 rounded focus:ring-1 focus:ring-blue-400 outline-none min-w-0"
+                                                placeholder="Key"
+                                                value={apiKey}
+                                                onChange={(e) => setApiKey(e.target.value)}
+                                                disabled={isConnected} 
+                                            />
+                                            <button 
+                                                onClick={handleConnect}
+                                                disabled={!apiKey || isConnected}
+                                                className={`px-3 py-1 rounded text-xs font-bold transition-colors whitespace-nowrap ${isConnected 
+                                                    ? 'bg-green-600 text-white cursor-default' 
+                                                    : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                                            >
+                                                {isConnected ? "OK" : "Go"}
+                                            </button>
+                                        </div>
+                                        {connectionError && <p className="text-[9px] text-red-600 mt-1 leading-tight">{connectionError}</p>}
+                                    </div>
+
+                                    {/* Right: Model Selection (Visual priority 2) */}
+                                    <div className="order-2">
+                                        <label className="block text-xs font-semibold text-gray-700 mb-1">モデル</label>
+                                        <select 
+                                            value={selectedModel} 
+                                            onChange={(e) => setSelectedModel(e.target.value)}
+                                            disabled={status === 'generating'}
+                                            className="w-full p-2 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-blue-400 outline-none bg-gray-50 disabled:opacity-60"
+                                        >
+                                            {models.map((m, i) => (
+                                                <option key={i} value={m.name}>{m.displayName || m.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                </div>
+
+                                <div className="space-y-4 mb-6">
+                                    <div>
+                                        <label className="block text-xs font-semibold text-gray-700 mb-1">Language</label>
+                                        <select 
+                                            value={language} 
+                                            onChange={(e) => setLanguage(e.target.value)}
+                                            disabled={status === 'generating'}
+                                            className="w-full p-2 text-sm border border-gray-300 rounded-lg disabled:opacity-60"
+                                        >
+                                            {LANGUAGES.map((l) => (
+                                                <option key={l.code} value={l.code}>{l.label}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-xs font-semibold text-gray-700 mb-1">Format</label>
+                                        <select 
+                                            value={format} 
+                                            disabled={true} 
+                                            className="w-full p-2 text-sm border border-gray-300 rounded-lg bg-gray-100 text-gray-500 cursor-not-allowed"
+                                        >
+                                            <option value="WAV">WAV (Raw PCM Converted)</option>
+                                        </select>
+                                        <p className="text-[10px] text-gray-400 mt-1">※Gemini API仕様によりWAV(PCM)で出力されます</p>
+                                    </div>
+                                </div>
+
+                                <hr className="border-gray-100 my-5" />
+
+                                <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4">Tuning</h3>
+                                
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <div className="flex justify-between items-center mb-1">
+                                            <label className="text-xs font-semibold text-gray-700">Temperature</label>
+                                            <span className="text-xs font-mono bg-gray-100 px-1 rounded">{temperature.toFixed(2)}</span>
+                                        </div>
+                                        <input 
+                                            type="range" 
+                                            min="0" 
+                                            max="1" 
+                                            step="0.05" 
+                                            value={temperature} 
+                                            onChange={(e) => setTemperature(parseFloat(e.target.value))}
+                                            disabled={status === 'generating'}
+                                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider-thumb mt-2 disabled:opacity-60 disabled:cursor-not-allowed"
+                                        />
+                                        <div className="flex justify-between text-[9px] text-gray-400 mt-1">
+                                            <span>Stable</span>
+                                            <span>Creative</span>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <div className="flex justify-between items-center mb-1 h-5">
+                                            <label className="text-xs font-semibold text-gray-700">Seed</label>
+                                        </div>
+                                        <input 
+                                            type="number" 
+                                            value={seed} 
+                                            onChange={(e) => setSeed(parseInt(e.target.value) || 0)}
+                                            disabled={status === 'generating' || isSeedLocked}
+                                            className={`w-full p-1.5 text-xs border rounded-lg font-mono disabled:opacity-60 ${isSeedLocked ? 'bg-gray-100 border-gray-300 text-gray-500 cursor-not-allowed' : 'bg-white border-gray-300'}`}
+                                        />
+                                        <div className="mt-2 flex items-center justify-start gap-2">
+                                            <label className="flex items-center gap-1 cursor-pointer select-none">
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={isSeedLocked} 
+                                                    onChange={(e) => handleSeedLockChange(e.target.checked)}
+                                                    disabled={status === 'generating'}
+                                                    className="w-3 h-3 text-blue-600 rounded disabled:opacity-60"
+                                                />
+                                                <span className="text-[10px] text-blue-700 font-medium whitespace-nowrap">値を固定する</span>
+                                            </label>
+                                            
+                                            {isSeedLocked && (
+                                                <span className="text-[10px] text-yellow-600 flex items-center gap-1 animate-in fade-in duration-300 whitespace-nowrap">
+                                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                                                    Seed値固定中
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* --- Right Column: Input & Output (Reduced to col-span-7) --- */}
+                        <div className="lg:col-span-7 space-y-4">
+                            
+                            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-[600px]">
+                                <div className="flex border-b border-gray-200 bg-gray-50">
+                                    <button 
+                                        onClick={() => handleModeChange('single')}
+                                        disabled={status === 'generating'}
+                                        className={`px-6 py-3 text-sm font-medium transition-colors border-b-2 disabled:opacity-60 ${mode === 'single' ? 'border-blue-600 text-blue-700 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                                    >
+                                        Single Speaker
+                                    </button>
+                                    <button 
+                                        onClick={() => handleModeChange('multi')}
+                                        disabled={status === 'generating'}
+                                        className={`px-6 py-3 text-sm font-medium transition-colors border-b-2 disabled:opacity-60 ${mode === 'multi' ? 'border-blue-600 text-blue-700 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+                                    >
+                                        Multi Speaker(未実装)
+                                    </button>
+                                </div>
+
+                                <div className="p-6 flex-1 flex flex-col gap-5 overflow-y-auto">
+                                    
+                                    <div className={`bg-blue-50 p-4 rounded-lg border border-blue-100 transition-opacity ${mode === 'multi' ? 'opacity-50' : ''}`}>
+                                        {mode === 'single' ? (
+                                            <div>
+                                                <label className="block text-xs font-bold text-blue-800 mb-1 flex items-center gap-1">
+                                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"></path></svg>
+                                                    声の選択
+                                                </label>
+                                                <select 
+                                                    value={voiceSingle} 
+                                                    onChange={(e) => setVoiceSingle(e.target.value)}
+                                                    disabled={isInputDisabled}
+                                                    className="w-full p-2 text-sm border border-blue-200 rounded bg-white focus:ring-1 focus:ring-blue-400 outline-none disabled:opacity-60 disabled:cursor-not-allowed"
+                                                >
+                                                    {VOICES.map(v => <option key={v} value={v}>{v}</option>)}
+                                                </select>
+                                            </div>
+                                        ) : (
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div>
+                                                    <label className="block text-xs font-bold text-blue-800 mb-1">Speaker A</label>
+                                                    <select 
+                                                        value={voiceMultiA} 
+                                                        onChange={(e) => setVoiceMultiA(e.target.value)}
+                                                        disabled={true} 
+                                                        className="w-full p-2 text-sm border border-blue-200 rounded bg-white focus:ring-1 focus:ring-blue-400 outline-none disabled:opacity-60 disabled:cursor-not-allowed"
+                                                    >
+                                                        {VOICES.map(v => <option key={v} value={v}>{v}</option>)}
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="block text-xs font-bold text-blue-800 mb-1">Speaker B</label>
+                                                    <select 
+                                                        value={voiceMultiB} 
+                                                        onChange={(e) => setVoiceMultiB(e.target.value)}
+                                                        disabled={true} 
+                                                        className="w-full p-2 text-sm border border-blue-200 rounded bg-white focus:ring-1 focus:ring-blue-400 outline-none disabled:opacity-60 disabled:cursor-not-allowed"
+                                                    >
+                                                        {VOICES.map(v => <option key={v} value={v}>{v}</option>)}
+                                                    </select>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div>
+                                        <label className={`block text-sm font-semibold text-gray-700 mb-1 ${mode === 'multi' ? 'opacity-50' : ''}`}>Style Prompt (演出指示)</label>
+                                        <textarea 
+                                            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm placeholder-gray-400 resize-y disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed"
+                                            rows="3"
+                                            placeholder="例: 明るく元気に / 悲しげに、ささやくように / ニュースキャスター風に&#10;（長いプロンプトも確認しやすくなりました）"
+                                            value={stylePrompt}
+                                            onChange={(e) => setStylePrompt(e.target.value)}
+                                            disabled={isInputDisabled}
+                                        ></textarea>
+                                    </div>
+
+                                    <div className="flex-1 flex flex-col">
+                                        <label className={`block text-sm font-semibold text-gray-700 mb-1 ${mode === 'multi' ? 'opacity-50' : ''}`}>Text (本文)</label>
+                                        <textarea 
+                                            className="w-full flex-1 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none resize-none text-base leading-relaxed placeholder-gray-400 font-sans disabled:bg-gray-50 disabled:text-gray-400 disabled:cursor-not-allowed"
+                                            placeholder={mode === 'single' ? "読み上げさせたい文章を入力してください..." : "Speaker A: こんにちは。\nSpeaker B: やあ、調子はどう？\n(話者名を含めて記述してください)"}
+                                            value={text}
+                                            onChange={(e) => setText(e.target.value)}
+                                            disabled={isInputDisabled}
+                                        ></textarea>
+                                    </div>
+                                </div>
+
+                                <div className="p-4 bg-gray-50 border-t border-gray-200 flex justify-end">
+                                    <button 
+                                        onClick={handleGenerate}
+                                        disabled={!text || !isConnected || isInputDisabled}
+                                        className="bg-blue-600 text-white px-8 py-3 rounded-lg font-bold shadow-md hover:bg-blue-700 active:transform active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                        title={!isConnected ? "先にConnectボタンを押してください" : (mode === 'multi' ? "マルチスピーカー機能は現在開発中です" : "")}
+                                    >
+                                        {status === 'generating' ? (
+                                            <>
+                                                <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                </svg>
+                                                Generating...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <span>Generate Audio</span>
+                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
+                            </div>
+
+                            {status !== 'idle' && (
+                                <div className={`rounded-xl border p-4 ${status === 'error' ? 'bg-red-50 border-red-200' : 'bg-white border-blue-100 shadow-sm'}`}>
+                                    
+                                    <div className="flex items-center gap-3 mb-3">
+                                        {status === 'generating' && <span className="text-blue-600 font-bold animate-pulse">● 処理中 (Generating)</span>}
+                                        {status === 'success' && <span className="text-green-600 font-bold">● 生成完了 (Success)</span>}
+                                        {status === 'error' && <span className="text-red-600 font-bold">● エラー (Error)</span>}
+                                    </div>
+
+                                    {lastUsedParams && (
+                                        <div className="bg-gray-800 text-gray-200 text-xs p-3 rounded font-mono mb-4 overflow-x-auto">
+                                            <div className="flex gap-4">
+                                                <span>Model: {lastUsedParams.model.split('/').pop()}</span>
+                                                <span>Temp: {lastUsedParams.temperature}</span>
+                                                <span className="text-yellow-400">Seed: {lastUsedParams.seed}</span>
+                                            </div>
+                                            <div className="mt-1 flex gap-4">
+                                                <span>Voice: {lastUsedParams.voices}</span>
+                                                <span>Lang: {lastUsedParams.language}</span>
+                                                <span>Mode: {lastUsedParams.mode}</span>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {status === 'error' && (
+                                        <p className="text-red-700 text-sm">{errorMessage}</p>
+                                    )}
+
+                                    {status === 'success' && audioUrl && (
+                                        <div className="flex items-center gap-4 animate-in fade-in slide-in-from-top-4 duration-300">
+                                            <audio controls src={audioUrl} className="flex-1 h-10" autoPlay controlsList="nodownload noplaybackrate" />
+                                            <a 
+                                                href={audioUrl} 
+                                                download={getDownloadFileName()}
+                                                className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                                            >
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                                                Download
+                                            </a>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
